@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function verifying authenticated user ownership
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // User profile document: /users/{userId}
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User structured memories subcollection: /users/{userId}/memories/{memoryId}
+    match /users/{userId}/memories/{memoryId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User wisdom circle subcollection: /users/{userId}/wisdom/{wisdomId}
+    match /users/{userId}/wisdom/{wisdomId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User book wisdom subcollection: /users/{userId}/books/{bookId}
+    match /users/{userId}/books/{bookId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User trusted circle subcollection: /users/{userId}/trusted_circle/{contactId}
+    match /users/{userId}/trusted_circle/{contactId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User growth insights subcollection: /users/{userId}/growth_insights/{reportId}
+    match /users/{userId}/growth_insights/{reportId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User retrieval logs subcollection: /users/{userId}/retrieval_logs/{logId}
+    match /users/{userId}/retrieval_logs/{logId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User interactions subcollection: /users/{userId}/interactions/{interactionId}
+    match /users/{userId}/interactions/{interactionId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // User conversations subcollection: /users/{userId}/conversations/{conversationId}
+    match /users/{userId}/conversations/{conversationId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Catch-all for any nested subcollections under the authenticated user
+    match /users/{userId}/{allSubcollections=**} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}
+

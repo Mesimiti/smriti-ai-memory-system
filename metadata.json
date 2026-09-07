@@ -1,0 +1,8 @@
+{
+  "name": "Smriti AI",
+  "description": "A secure AI-powered memory companion that helps users remember, reflect, and grow.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
