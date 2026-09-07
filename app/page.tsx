@@ -136,6 +136,31 @@ function formatDisplayDate(dateStr?: string): string {
   return dateStr.slice(0, 10);
 }
 
+/**
+ * Normalizes raw Browser Events, DOMExceptions, or unexpected errors into clean structured Error objects.
+ * Prevents Next.js next-devtools coerceError from receiving raw [object Event] instances.
+ */
+function toStructuredError(raw: unknown, fallbackMessage: string): Error {
+  if (raw instanceof Error) {
+    return raw;
+  }
+  if (typeof raw === 'string') {
+    return new Error(`${fallbackMessage}: ${raw}`);
+  }
+  if (raw && typeof raw === 'object') {
+    const errObj = raw as any;
+    const msg =
+      errObj.message ||
+      errObj.error ||
+      errObj.reason ||
+      errObj.type ||
+      errObj.name ||
+      fallbackMessage;
+    return new Error(`${fallbackMessage}: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
+  }
+  return new Error(`${fallbackMessage}: ${String(raw)}`);
+}
+
 const FIRESTORE_RULES_SOURCE = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -386,6 +411,76 @@ export default function HomePage() {
   useEffect(() => {
     isSpeakingRef.current = isSpeaking;
   }, [isSpeaking]);
+
+  // Global Browser Event Shield to Prevent Raw [object Event] Crashes in next-devtools / iframes
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleGlobalError = (event: ErrorEvent) => {
+      const rawError = event.error || (event as any);
+      const isRawEvent =
+        !(rawError instanceof Error) ||
+        (rawError && typeof rawError === 'object' && ('type' in rawError || 'bubbles' in rawError));
+
+      const isSpeechOrMediaEvent =
+        event.message?.toLowerCase().includes('speech') ||
+        event.message?.toLowerCase().includes('audio') ||
+        event.message?.toLowerCase().includes('microphone') ||
+        event.message?.toLowerCase().includes('notallowederror') ||
+        (rawError &&
+          (rawError.error === 'not-allowed' ||
+            rawError.error === 'service-not-allowed' ||
+            rawError.error === 'canceled' ||
+            rawError.error === 'no-speech' ||
+            rawError.name === 'NotAllowedError'));
+
+      if (isRawEvent || isSpeechOrMediaEvent) {
+        try {
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+        } catch {
+          // ignore
+        }
+        const errorDetail =
+          rawError?.message ||
+          rawError?.error ||
+          event.message ||
+          (typeof rawError === 'string' ? rawError : 'Handled browser event');
+        console.warn(`[Smriti AI Event Shield]: Handled browser event safely: ${errorDetail}`);
+      }
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const isRawEvent =
+        !(reason instanceof Error) ||
+        (reason && typeof reason === 'object' && ('type' in reason || 'bubbles' in reason));
+
+      if (isRawEvent) {
+        try {
+          event.preventDefault?.();
+          event.stopPropagation?.();
+          event.stopImmediatePropagation?.();
+        } catch {
+          // ignore
+        }
+        const reasonDetail =
+          reason?.message ||
+          reason?.error ||
+          (typeof reason === 'string' ? reason : 'Handled unhandled rejection event');
+        console.warn(`[Smriti AI Event Shield]: Handled unhandled promise event: ${reasonDetail}`);
+      }
+    };
+
+    window.addEventListener('error', handleGlobalError, true);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection, true);
+
+    return () => {
+      window.removeEventListener('error', handleGlobalError, true);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection, true);
+    };
+  }, []);
 
   // Human Review & Approval Workflow State
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
@@ -818,15 +913,23 @@ export default function HomePage() {
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Speech recognition error event:', event.error);
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          setVoiceError('Microphone access was denied. Please allow microphone permissions in browser settings.');
-          addLog('error', 'Microphone access denied by browser.');
-        } else if (event.error === 'no-speech') {
+        try {
+          event?.preventDefault?.();
+          event?.stopPropagation?.();
+          event?.stopImmediatePropagation?.();
+        } catch {
+          // ignore
+        }
+        const errorType = typeof event?.error === 'string' ? event.error : 'unknown';
+        console.warn('Speech recognition notice:', errorType);
+        if (errorType === 'not-allowed' || errorType === 'service-not-allowed') {
+          setVoiceError('Microphone access was not permitted. You can continue by typing your reflections.');
+          addLog('warn', 'Microphone access denied or unavailable in browser.');
+        } else if (errorType === 'no-speech') {
           addLog('info', 'No speech detected.');
         } else {
-          setVoiceError(`Voice input event: ${event.error}`);
-          addLog('warn', `Voice input event: ${event.error}`);
+          setVoiceError(`Voice input event: ${errorType}`);
+          addLog('warn', `Voice input event: ${errorType}`);
         }
         setIsListening(false);
       };
@@ -837,11 +940,12 @@ export default function HomePage() {
 
       recognitionRef.current = recognition;
       recognition.start();
-    } catch (err: any) {
-      console.error('Failed to start speech recognition:', err);
+    } catch (err: unknown) {
+      const structErr = toStructuredError(err, 'Speech recognition start notice');
+      console.warn('Speech recognition could not be started:', structErr.message);
       setIsListening(false);
-      setVoiceError('Unable to start microphone.');
-      addLog('error', `Microphone initialization error: ${err.message}`);
+      setVoiceError('Microphone input is currently unavailable. You can type freely.');
+      addLog('warn', `Microphone notice: ${structErr.message}`);
     }
   };
 
@@ -911,29 +1015,6 @@ export default function HomePage() {
         addLog('info', `Voice Agent speaking in [${selectedStyleRef.current.toUpperCase()}] mode (${styleParams.styleDesc})...`);
       };
 
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        setCurrentlySpeakingId(null);
-        if (voiceSessionOpenRef.current) {
-          setVoiceAgentState('idle');
-        }
-        if (onEndCallback) {
-          onEndCallback();
-        }
-      };
-
-      utterance.onerror = (event: any) => {
-        console.warn('Speech synthesis error:', event);
-        setIsSpeaking(false);
-        setCurrentlySpeakingId(null);
-        if (voiceSessionOpenRef.current) {
-          setVoiceAgentState('idle');
-        }
-        if (onEndCallback) {
-          onEndCallback();
-        }
-      };
-
       // Heartbeat to prevent Chromium SpeechSynthesis 15s pause bug
       let heartbeat: any = null;
       heartbeat = setInterval(() => {
@@ -966,7 +1047,17 @@ export default function HomePage() {
       };
 
       utterance.onerror = (event: any) => {
-        console.warn('Speech synthesis error:', event);
+        try {
+          event?.preventDefault?.();
+          event?.stopPropagation?.();
+          event?.stopImmediatePropagation?.();
+        } catch {
+          // ignore
+        }
+        const errType = typeof event?.error === 'string' ? event.error : 'interrupted_or_stopped';
+        if (errType !== 'canceled' && errType !== 'interrupted') {
+          console.warn('Speech synthesis notice:', errType);
+        }
         cleanupUtterance();
         if (onEndCallback) {
           onEndCallback();
@@ -974,8 +1065,9 @@ export default function HomePage() {
       };
 
       window.speechSynthesis.speak(utterance);
-    } catch (err: any) {
-      console.error('Speech synthesis initialization failed:', err);
+    } catch (err: unknown) {
+      const structErr = toStructuredError(err, 'Speech synthesis notice');
+      console.warn('Speech synthesis initialization notice:', structErr.message);
       setIsSpeaking(false);
       setCurrentlySpeakingId(null);
       if (onEndCallback) onEndCallback();
@@ -1040,16 +1132,24 @@ export default function HomePage() {
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('Voice session recognition error:', event.error);
-        if (event.error === 'not-allowed') {
-          setVoiceSessionError('Microphone permission was denied. Please allow microphone access in browser.');
+        try {
+          event?.preventDefault?.();
+          event?.stopPropagation?.();
+          event?.stopImmediatePropagation?.();
+        } catch {
+          // ignore
+        }
+        const errorType = typeof event?.error === 'string' ? event.error : 'unknown';
+        console.warn('Voice session recognition notice:', errorType);
+        if (errorType === 'not-allowed' || errorType === 'service-not-allowed') {
+          setVoiceSessionError('Microphone permission was denied or restricted. Please type your reflection.');
           setVoiceAgentState('idle');
-        } else if (event.error === 'no-speech') {
+        } else if (errorType === 'no-speech') {
           if (voiceSessionOpenRef.current && !isSpeakingRef.current) {
             setVoiceAgentState('idle');
           }
         } else {
-          setVoiceSessionError(`Voice event: ${event.error}`);
+          setVoiceSessionError(`Voice event: ${errorType}`);
           setVoiceAgentState('idle');
         }
       };
@@ -1069,9 +1169,10 @@ export default function HomePage() {
 
       voiceSessionRecognitionRef.current = recognition;
       recognition.start();
-    } catch (err: any) {
-      console.error('Failed to start voice session listening:', err);
-      setVoiceSessionError('Unable to access microphone.');
+    } catch (err: unknown) {
+      const structErr = toStructuredError(err, 'Voice session recognition notice');
+      console.warn('Voice session could not start listening:', structErr.message);
+      setVoiceSessionError('Microphone is unavailable in this frame. Type your message.');
       setVoiceAgentState('idle');
     }
   };

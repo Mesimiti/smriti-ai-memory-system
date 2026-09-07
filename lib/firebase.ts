@@ -1284,7 +1284,7 @@ export async function saveRetrievalLog(
       await setDoc(logRef, sanitizedLog, { merge: true });
       return { success: true, id: sanitizedLog.id, firestoreSynced: true };
     } catch (err: any) {
-      console.error("Failed to persist retrieval log to Firestore:", err);
+      console.warn("Failed to persist retrieval log to Firestore:", err?.message || String(err));
       return {
         success: true,
         id: sanitizedLog.id,

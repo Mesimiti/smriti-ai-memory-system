@@ -10,8 +10,14 @@ interface ErrorBoundaryProps {
 
 export default function RootErrorBoundary({ error, reset }: ErrorBoundaryProps) {
   useEffect(() => {
-    // Log unexpected client-level runtime exceptions securely
-    console.error('[Smriti AI Root Error Boundary Caught]:', error);
+    // Log unexpected client-level runtime exceptions securely without passing raw Event objects
+    const safeMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+        ? error
+        : (error as any)?.message || 'Runtime exception caught';
+    console.warn('[Smriti AI Root Error Boundary Caught]:', safeMessage);
   }, [error]);
 
   const handleHardRefresh = () => {
