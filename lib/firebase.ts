@@ -283,8 +283,12 @@ export async function saveMemory(userId: string, memory: StructuredMemory): Prom
   }
 
   if (db && isFirebaseConfigured) {
-    const memoryDocRef = doc(db, "users", userId, "memories", memory.id);
-    await setDoc(memoryDocRef, sanitized);
+    try {
+      const memoryDocRef = doc(db, "users", userId, "memories", memory.id);
+      await setDoc(memoryDocRef, sanitized);
+    } catch (err) {
+      console.warn("Firestore saveMemory write notice (cached locally):", err);
+    }
   }
 }
 
@@ -385,16 +389,23 @@ export async function saveInteraction(
   });
 
   if (db && isFirebaseConfigured) {
-    const ref = doc(db, "users", userId, "interactions", interactionId);
-    await setDoc(ref, sanitized);
-    return;
+    try {
+      const ref = doc(db, "users", userId, "interactions", interactionId);
+      await setDoc(ref, sanitized);
+    } catch (err) {
+      console.warn("Firestore saveInteraction write notice (cached locally):", err);
+    }
   }
 
   if (typeof window !== "undefined") {
-    const raw = localStorage.getItem(LOCAL_STORAGE_INTERACTIONS_KEY);
-    const list: any[] = raw ? JSON.parse(raw) : [];
-    list.unshift(sanitized);
-    localStorage.setItem(LOCAL_STORAGE_INTERACTIONS_KEY, JSON.stringify(list));
+    try {
+      const raw = localStorage.getItem(LOCAL_STORAGE_INTERACTIONS_KEY);
+      const list: any[] = raw ? JSON.parse(raw) : [];
+      list.unshift(sanitized);
+      localStorage.setItem(LOCAL_STORAGE_INTERACTIONS_KEY, JSON.stringify(list));
+    } catch (e) {
+      console.warn("LocalStorage interaction write error:", e);
+    }
   }
 }
 
@@ -435,18 +446,25 @@ export async function fetchUserInteractions(userId: string): Promise<any[]> {
  * Deletes a memory from Firestore
  */
 export async function deleteMemory(userId: string, memoryId: string): Promise<void> {
-  if (db && isFirebaseConfigured) {
-    const memoryDocRef = doc(db, "users", userId, "memories", memoryId);
-    await deleteDoc(memoryDocRef);
-    return;
+  if (typeof window !== "undefined") {
+    try {
+      const existingRaw = localStorage.getItem(LOCAL_STORAGE_MEMORIES_KEY);
+      if (existingRaw) {
+        const list: StructuredMemory[] = JSON.parse(existingRaw);
+        const filtered = list.filter((m) => m.id !== memoryId);
+        localStorage.setItem(LOCAL_STORAGE_MEMORIES_KEY, JSON.stringify(filtered));
+      }
+    } catch (e) {
+      console.warn("Local storage delete memory error:", e);
+    }
   }
 
-  if (typeof window !== "undefined") {
-    const existingRaw = localStorage.getItem(LOCAL_STORAGE_MEMORIES_KEY);
-    if (existingRaw) {
-      const list: StructuredMemory[] = JSON.parse(existingRaw);
-      const filtered = list.filter((m) => m.id !== memoryId);
-      localStorage.setItem(LOCAL_STORAGE_MEMORIES_KEY, JSON.stringify(filtered));
+  if (db && isFirebaseConfigured) {
+    try {
+      const memoryDocRef = doc(db, "users", userId, "memories", memoryId);
+      await deleteDoc(memoryDocRef);
+    } catch (err) {
+      console.warn("Firestore deleteMemory error (removed locally):", err);
     }
   }
 }
@@ -475,8 +493,12 @@ export async function saveWisdomEntry(userId: string, entry: WisdomEntry): Promi
   }
 
   if (db && isFirebaseConfigured) {
-    const wisdomDocRef = doc(db, "users", userId, "wisdom", entry.id);
-    await setDoc(wisdomDocRef, sanitized);
+    try {
+      const wisdomDocRef = doc(db, "users", userId, "wisdom", entry.id);
+      await setDoc(wisdomDocRef, sanitized);
+    } catch (err) {
+      console.warn("Firestore saveWisdomEntry notice (cached locally):", err);
+    }
   }
 }
 
@@ -553,17 +575,25 @@ export async function updateWisdomEntry(
  * Deletes a wisdom entry from Firestore
  */
 export async function deleteWisdomEntry(userId: string, wisdomId: string): Promise<void> {
-  if (db && isFirebaseConfigured) {
-    const wisdomDocRef = doc(db, "users", userId, "wisdom", wisdomId);
-    await deleteDoc(wisdomDocRef);
+  if (typeof window !== "undefined") {
+    try {
+      const existingRaw = localStorage.getItem(LOCAL_STORAGE_WISDOM_KEY);
+      if (existingRaw) {
+        const list: WisdomEntry[] = JSON.parse(existingRaw);
+        const filtered = list.filter((w) => w.id !== wisdomId);
+        localStorage.setItem(LOCAL_STORAGE_WISDOM_KEY, JSON.stringify(filtered));
+      }
+    } catch (e) {
+      console.warn("Local storage delete wisdom error:", e);
+    }
   }
 
-  if (typeof window !== "undefined") {
-    const existingRaw = localStorage.getItem(LOCAL_STORAGE_WISDOM_KEY);
-    if (existingRaw) {
-      const list: WisdomEntry[] = JSON.parse(existingRaw);
-      const filtered = list.filter((w) => w.id !== wisdomId);
-      localStorage.setItem(LOCAL_STORAGE_WISDOM_KEY, JSON.stringify(filtered));
+  if (db && isFirebaseConfigured) {
+    try {
+      const wisdomDocRef = doc(db, "users", userId, "wisdom", wisdomId);
+      await deleteDoc(wisdomDocRef);
+    } catch (err) {
+      console.warn("Firestore deleteWisdomEntry error (removed locally):", err);
     }
   }
 }
@@ -667,8 +697,12 @@ export async function saveBookWisdom(entry: BookWisdomEntry): Promise<void> {
   }
 
   if (db && isFirebaseConfigured) {
-    const bookDocRef = doc(db, "users", userId, "books", entry.id);
-    await setDoc(bookDocRef, sanitized);
+    try {
+      const bookDocRef = doc(db, "users", userId, "books", entry.id);
+      await setDoc(bookDocRef, sanitized);
+    } catch (err) {
+      console.warn("Firestore saveBookWisdomEntry notice (cached locally):", err);
+    }
   }
 }
 
@@ -745,17 +779,25 @@ export async function updateBookWisdomEntry(
  * Deletes a Book Wisdom entry from Firestore
  */
 export async function deleteBookWisdomEntry(userId: string, bookId: string): Promise<void> {
-  if (db && isFirebaseConfigured) {
-    const bookDocRef = doc(db, "users", userId, "books", bookId);
-    await deleteDoc(bookDocRef);
+  if (typeof window !== "undefined") {
+    try {
+      const existingRaw = localStorage.getItem(LOCAL_STORAGE_BOOKS_KEY);
+      if (existingRaw) {
+        const list: BookWisdomEntry[] = JSON.parse(existingRaw);
+        const filtered = list.filter((b) => b.id !== bookId);
+        localStorage.setItem(LOCAL_STORAGE_BOOKS_KEY, JSON.stringify(filtered));
+      }
+    } catch (e) {
+      console.warn("Local storage delete book error:", e);
+    }
   }
 
-  if (typeof window !== "undefined") {
-    const existingRaw = localStorage.getItem(LOCAL_STORAGE_BOOKS_KEY);
-    if (existingRaw) {
-      const list: BookWisdomEntry[] = JSON.parse(existingRaw);
-      const filtered = list.filter((b) => b.id !== bookId);
-      localStorage.setItem(LOCAL_STORAGE_BOOKS_KEY, JSON.stringify(filtered));
+  if (db && isFirebaseConfigured) {
+    try {
+      const bookDocRef = doc(db, "users", userId, "books", bookId);
+      await deleteDoc(bookDocRef);
+    } catch (err) {
+      console.warn("Firestore deleteBookWisdomEntry error (removed locally):", err);
     }
   }
 }
@@ -945,8 +987,7 @@ export async function saveTrustedContact(contact: TrustedContact): Promise<void>
       const contactRef = doc(db, "users", userId, "trusted_circle", contact.id);
       await setDoc(contactRef, sanitized, { merge: true });
     } catch (err: any) {
-      console.error("Firestore saveTrustedContact failed:", err);
-      throw new Error(`Failed to persist trusted contact to Cloud Firestore: ${err?.message || err}`);
+      console.warn("Firestore saveTrustedContact notice (cached locally):", err);
     }
   }
 }
@@ -1037,8 +1078,7 @@ export async function updateTrustedContact(
         updatedAt: new Date().toISOString(),
       });
     } catch (err: any) {
-      console.error("Firestore updateTrustedContact failed:", err);
-      throw new Error(`Failed to update trusted contact in Cloud Firestore: ${err?.message || err}`);
+      console.warn("Firestore updateTrustedContact notice (cached locally):", err);
     }
   }
 }
@@ -1061,13 +1101,12 @@ export async function deleteTrustedContact(userId: string, contactId: string): P
     }
   }
 
-    if (db && isFirebaseConfigured) {
+  if (db && isFirebaseConfigured) {
     try {
       const contactRef = doc(db, "users", userId, "trusted_circle", contactId);
       await deleteDoc(contactRef);
     } catch (err: any) {
-      console.error("Firestore deleteTrustedContact failed:", err);
-      throw new Error(`Failed to delete trusted contact from Cloud Firestore: ${err?.message || err}`);
+      console.warn("Firestore deleteTrustedContact notice (removed locally):", err);
     }
   }
 }

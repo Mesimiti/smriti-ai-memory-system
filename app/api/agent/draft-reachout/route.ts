@@ -152,9 +152,18 @@ Warmly,`;
     return NextResponse.json(fallbackResponse);
   } catch (err: any) {
     console.error("[Draft Reachout API Route Error]:", err);
-    return NextResponse.json(
-      { error: err?.message || "Internal server error while drafting reachout message." },
-      { status: 500 }
-    );
+    // Safe graceful recovery response to prevent crash
+    const safeResponse: ReachoutDraftResponse = {
+      draftMessage: "Hey, I've had a lot on my mind recently and was thinking of you. Would you be free for a quick chat sometime soon? No rush at all.",
+      experienceSummary: "Connecting with trusted circle",
+      supportSummary: "Friendly catch up",
+      reachoutReason: "Reaching out to a trusted contact",
+      whatExperiencing: "Reflecting on recent events",
+      supportSeeking: "Conversation and connection",
+      whyReachingOut: "Trusted relationship",
+      modelUsed: "deterministic-failsafe",
+      tips: ["Adjust the text to your own voice before sending."],
+    };
+    return NextResponse.json(safeResponse, { status: 200 });
   }
 }

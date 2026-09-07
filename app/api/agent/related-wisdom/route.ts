@@ -204,9 +204,6 @@ If none of the candidates are meaningfully relevant, return {"items": []}. Do no
     return NextResponse.json({ items: fallbackItems.slice(0, 4) });
   } catch (err: any) {
     console.error("[Related Wisdom API Route Error]:", err);
-    return NextResponse.json(
-      { error: err?.message || "Internal server error during related wisdom search." },
-      { status: 500 }
-    );
+    return NextResponse.json({ items: [] }, { status: 200 });
   }
 }

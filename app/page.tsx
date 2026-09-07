@@ -801,8 +801,13 @@ export default function HomePage() {
 
       recognition.onresult = (event: any) => {
         let transcript = '';
-        for (let i = 0; i < event.results.length; ++i) {
-          transcript += event.results[i][0].transcript;
+        if (event && event.results) {
+          for (let i = 0; i < event.results.length; ++i) {
+            const res = event.results[i];
+            if (res && res[0] && typeof res[0].transcript === 'string') {
+              transcript += res[0].transcript;
+            }
+          }
         }
 
         const speechText = transcript.trim();
@@ -930,14 +935,43 @@ export default function HomePage() {
       };
 
       // Heartbeat to prevent Chromium SpeechSynthesis 15s pause bug
-      const heartbeat = setInterval(() => {
-        if (!window.speechSynthesis.speaking) {
-          clearInterval(heartbeat);
-        } else {
-          window.speechSynthesis.pause();
-          window.speechSynthesis.resume();
+      let heartbeat: any = null;
+      heartbeat = setInterval(() => {
+        try {
+          if (!window?.speechSynthesis?.speaking) {
+            if (heartbeat) clearInterval(heartbeat);
+          } else {
+            window.speechSynthesis.pause();
+            window.speechSynthesis.resume();
+          }
+        } catch {
+          if (heartbeat) clearInterval(heartbeat);
         }
       }, 10000);
+
+      const cleanupUtterance = () => {
+        if (heartbeat) clearInterval(heartbeat);
+        setIsSpeaking(false);
+        setCurrentlySpeakingId(null);
+        if (voiceSessionOpenRef.current) {
+          setVoiceAgentState('idle');
+        }
+      };
+
+      utterance.onend = () => {
+        cleanupUtterance();
+        if (onEndCallback) {
+          onEndCallback();
+        }
+      };
+
+      utterance.onerror = (event: any) => {
+        console.warn('Speech synthesis error:', event);
+        cleanupUtterance();
+        if (onEndCallback) {
+          onEndCallback();
+        }
+      };
 
       window.speechSynthesis.speak(utterance);
     } catch (err: any) {
@@ -990,11 +1024,16 @@ export default function HomePage() {
 
       recognition.onresult = (event: any) => {
         let interim = '';
-        for (let i = 0; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            capturedText += event.results[i][0].transcript;
-          } else {
-            interim += event.results[i][0].transcript;
+        if (event && event.results) {
+          for (let i = 0; i < event.results.length; ++i) {
+            const res = event.results[i];
+            if (res && res[0] && typeof res[0].transcript === 'string') {
+              if (res.isFinal) {
+                capturedText += res[0].transcript;
+              } else {
+                interim += res[0].transcript;
+              }
+            }
           }
         }
         setVoiceInterimTranscript(interim || capturedText);
@@ -2518,58 +2557,60 @@ export default function HomePage() {
   // Filtered Vault Memories
   const allThemes = Array.from(new Set(memories.flatMap((m) => m.themes || []))).filter(Boolean);
   const filteredMemories = memories.filter((m) => {
+    const q = (vaultSearchQuery || '').toLowerCase().trim();
     const matchesSearch =
-      !vaultSearchQuery ||
-      m.summary.toLowerCase().includes(vaultSearchQuery.toLowerCase()) ||
-      (m.reflectionNotes && m.reflectionNotes.toLowerCase().includes(vaultSearchQuery.toLowerCase())) ||
-      (m.keyLearnings && m.keyLearnings.some((k) => k.toLowerCase().includes(vaultSearchQuery.toLowerCase()))) ||
-      (m.tags && m.tags.some((t) => t.toLowerCase().includes(vaultSearchQuery.toLowerCase())));
+      !q ||
+      (m.summary || '').toLowerCase().includes(q) ||
+      (m.reflectionNotes && m.reflectionNotes.toLowerCase().includes(q)) ||
+      (Array.isArray(m.keyLearnings) && m.keyLearnings.some((k) => (k || '').toLowerCase().includes(q))) ||
+      (Array.isArray(m.tags) && m.tags.some((t) => (t || '').toLowerCase().includes(q)));
 
-    const matchesTheme = selectedThemeFilter === 'ALL' || (m.themes && m.themes.includes(selectedThemeFilter));
+    const matchesTheme = selectedThemeFilter === 'ALL' || (Array.isArray(m.themes) && m.themes.includes(selectedThemeFilter));
     const matchesStyle = selectedStyleFilter === 'ALL' || m.reflectionStyle === selectedStyleFilter;
     return matchesSearch && matchesTheme && matchesStyle;
   });
 
   // Filtered Wisdom Circle entries
   const filteredWisdomList = wisdomList.filter((w) => {
+    const q = (wisdomSearchQuery || '').toLowerCase().trim();
     const matchesSearch =
-      !wisdomSearchQuery ||
-      w.personName.toLowerCase().includes(wisdomSearchQuery.toLowerCase()) ||
-      w.wisdomText.toLowerCase().includes(wisdomSearchQuery.toLowerCase()) ||
-      w.situation.toLowerCase().includes(wisdomSearchQuery.toLowerCase()) ||
-      w.whyItMatters.toLowerCase().includes(wisdomSearchQuery.toLowerCase()) ||
-      (w.themes && w.themes.some((t) => t.toLowerCase().includes(wisdomSearchQuery.toLowerCase()))) ||
-      (w.tags && w.tags.some((t) => t.toLowerCase().includes(wisdomSearchQuery.toLowerCase())));
+      !q ||
+      (w.personName || '').toLowerCase().includes(q) ||
+      (w.wisdomText || '').toLowerCase().includes(q) ||
+      (w.situation || '').toLowerCase().includes(q) ||
+      (w.whyItMatters || '').toLowerCase().includes(q) ||
+      (Array.isArray(w.themes) && w.themes.some((t) => (t || '').toLowerCase().includes(q))) ||
+      (Array.isArray(w.tags) && w.tags.some((t) => (t || '').toLowerCase().includes(q)));
 
     const matchesRel =
       selectedRelationshipFilter === 'ALL' ||
-      w.relationship.toLowerCase() === selectedRelationshipFilter.toLowerCase();
+      (w.relationship || '').toLowerCase() === (selectedRelationshipFilter || '').toLowerCase();
 
     return matchesSearch && matchesRel;
   });
 
   // Filtered Book Wisdom entries
-  const allBookAuthors = Array.from(new Set(bookWisdomList.map((b) => b.author.trim()))).filter(Boolean);
+  const allBookAuthors = Array.from(new Set(bookWisdomList.map((b) => (b.author || '').trim()))).filter(Boolean);
   const allBookThemes = Array.from(new Set(bookWisdomList.flatMap((b) => b.themes || []))).filter(Boolean);
   const filteredBookWisdomList = bookWisdomList.filter((b) => {
-    const q = bookSearchQuery.toLowerCase();
+    const q = (bookSearchQuery || '').toLowerCase().trim();
     const matchesSearch =
-      !bookSearchQuery ||
-      b.bookTitle.toLowerCase().includes(q) ||
-      b.author.toLowerCase().includes(q) ||
-      b.keyIdea.toLowerCase().includes(q) ||
-      b.quote.toLowerCase().includes(q) ||
-      b.personalReflection.toLowerCase().includes(q) ||
-      (b.themes && b.themes.some((t) => t.toLowerCase().includes(q))) ||
-      (b.tags && b.tags.some((t) => t.toLowerCase().includes(q)));
+      !q ||
+      (b.bookTitle || '').toLowerCase().includes(q) ||
+      (b.author || '').toLowerCase().includes(q) ||
+      (b.keyIdea || '').toLowerCase().includes(q) ||
+      (b.quote || '').toLowerCase().includes(q) ||
+      (b.personalReflection || '').toLowerCase().includes(q) ||
+      (Array.isArray(b.themes) && b.themes.some((t) => (t || '').toLowerCase().includes(q))) ||
+      (Array.isArray(b.tags) && b.tags.some((t) => (t || '').toLowerCase().includes(q)));
 
     const matchesAuthor =
       selectedBookAuthorFilter === 'ALL' ||
-      b.author.toLowerCase() === selectedBookAuthorFilter.toLowerCase();
+      (b.author || '').toLowerCase() === (selectedBookAuthorFilter || '').toLowerCase();
 
     const matchesTheme =
       selectedBookThemeFilter === 'ALL' ||
-      (b.themes && b.themes.includes(selectedBookThemeFilter));
+      (Array.isArray(b.themes) && b.themes.includes(selectedBookThemeFilter));
 
     return matchesSearch && matchesAuthor && matchesTheme;
   });
@@ -4398,7 +4439,7 @@ export default function HomePage() {
                     const count =
                       rel === 'ALL'
                         ? wisdomList.length
-                        : wisdomList.filter((w) => w.relationship.toLowerCase() === rel.toLowerCase()).length;
+                        : wisdomList.filter((w) => (w.relationship || '').toLowerCase() === rel.toLowerCase()).length;
                     return (
                       <button
                         key={rel}
@@ -4769,8 +4810,8 @@ export default function HomePage() {
                     <span className="text-[10px] opacity-80">({bookWisdomList.length})</span>
                   </button>
                   {allBookAuthors.map((author) => {
-                    const isSelected = selectedBookAuthorFilter.toLowerCase() === author.toLowerCase();
-                    const count = bookWisdomList.filter((b) => b.author.toLowerCase() === author.toLowerCase()).length;
+                    const isSelected = (selectedBookAuthorFilter || '').toLowerCase() === (author || '').toLowerCase();
+                    const count = bookWisdomList.filter((b) => (b.author || '').toLowerCase() === (author || '').toLowerCase()).length;
                     return (
                       <button
                         key={author}
@@ -5210,20 +5251,20 @@ export default function HomePage() {
 
             {/* Contacts Grid */}
             {(() => {
-              const q = trustedSearchQuery.toLowerCase().trim();
+              const q = (trustedSearchQuery || '').toLowerCase().trim();
               const filtered = trustedContacts.filter((c) => {
                 const matchesQuery =
                   !q ||
-                  c.name.toLowerCase().includes(q) ||
-                  c.relationship.toLowerCase().includes(q) ||
-                  c.whyTheyMatter.toLowerCase().includes(q) ||
+                  (c.name || '').toLowerCase().includes(q) ||
+                  (c.relationship || '').toLowerCase().includes(q) ||
+                  (c.whyTheyMatter || '').toLowerCase().includes(q) ||
                   (c.contactDetail && c.contactDetail.toLowerCase().includes(q)) ||
                   (c.optionalNotes && c.optionalNotes.toLowerCase().includes(q)) ||
-                  (c.tags && c.tags.some((t) => t.toLowerCase().includes(q)));
+                  (Array.isArray(c.tags) && c.tags.some((t) => (t || '').toLowerCase().includes(q)));
 
                 const matchesRel =
                   selectedTrustedRelFilter === 'ALL' ||
-                  c.relationship.toLowerCase() === selectedTrustedRelFilter.toLowerCase();
+                  (c.relationship || '').toLowerCase() === (selectedTrustedRelFilter || '').toLowerCase();
 
                 return matchesQuery && matchesRel;
               });

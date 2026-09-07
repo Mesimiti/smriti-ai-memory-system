@@ -10,11 +10,16 @@ export const MODEL_FALLBACK_LADDER = [
 
 let aiClient: GoogleGenAI | null = null;
 
-export function getGeminiClient(): GoogleGenAI {
+export function isGeminiConfigured(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim().length > 0);
+}
+
+export function getGeminiClient(): GoogleGenAI | null {
   if (!aiClient) {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is missing.");
+    if (!apiKey || !apiKey.trim()) {
+      console.warn("[Gemini API Warning]: GEMINI_API_KEY is not set. Deterministic fallback engine will be utilized.");
+      return null;
     }
     aiClient = new GoogleGenAI({ apiKey });
   }
@@ -24,50 +29,48 @@ export function getGeminiClient(): GoogleGenAI {
 /**
  * Executes a generation request through the Resilient Model Fallback Ladder.
  * Catches 503, 429, 404, and 500 recoverable errors and tries the next model.
+ * If Gemini is not configured or all models fail, throws an identifiable error for route-level deterministic fallback.
  */
 export async function generateContentWithFallback(params: {
   contents: any;
   config?: any;
 }): Promise<{ text: string; modelUsed: string }> {
   const ai = getGeminiClient();
+  if (!ai) {
+    throw new Error("GEMINI_NOT_CONFIGURED: GEMINI_API_KEY environment variable is not available.");
+  }
+
   const errors: Array<{ model: string; error: string }> = [];
 
   for (const model of MODEL_FALLBACK_LADDER) {
     try {
-      const response = await ai.models.generateContent({
+      // Execute generateContent with a defensive 25s timeout to prevent hanging requests
+      const responsePromise = ai.models.generateContent({
         model,
         contents: params.contents,
         config: params.config,
       });
 
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Timeout: ${model} took longer than 25s`)), 25000);
+      });
+
+      const response = await Promise.race([responsePromise, timeoutPromise]);
       const responseText = response.text || "";
-      return { text: responseText, modelUsed: model };
+
+      if (responseText.trim().length > 0) {
+        return { text: responseText, modelUsed: model };
+      }
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
       const status = err?.status || err?.statusCode || "";
       console.warn(`[Gemini Fallback] Model ${model} failed (${status}): ${errorMessage}`);
       errors.push({ model, error: errorMessage });
-
-      // Check if error is recoverable
-      const isRecoverable =
-        status === 503 ||
-        status === 429 ||
-        status === 404 ||
-        status === 500 ||
-        errorMessage.includes("429") ||
-        errorMessage.includes("503") ||
-        errorMessage.includes("resource exhausted") ||
-        errorMessage.includes("unavailable") ||
-        errorMessage.includes("overloaded") ||
-        errorMessage.includes("not found");
-
-      if (!isRecoverable && model === MODEL_FALLBACK_LADDER[0]) {
-        // If it's a fatal validation or syntax error, log and still attempt one fallback
-      }
     }
   }
 
   // If all models in the ladder failed
   const errorDetails = errors.map((e) => `[${e.model}: ${e.error}]`).join(", ");
-  throw new Error(`All Gemini fallback models exhausted. Details: ${errorDetails}`);
+  throw new Error(`ALL_MODELS_EXHAUSTED: All Gemini fallback models exhausted. Details: ${errorDetails}`);
 }
+

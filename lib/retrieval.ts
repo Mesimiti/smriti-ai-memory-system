@@ -62,9 +62,9 @@ export function calculateRankingFactors(params: {
   createdAt: string;
   actionItemTexts?: string[];
 }): RetrievalRankingFactors {
-  const { queryKeywords, docText, docThemes, docTags, createdAt, actionItemTexts = [] } = params;
+  const { queryKeywords = [], docText = "", docThemes = [], docTags = [], createdAt, actionItemTexts = [] } = params;
 
-  if (queryKeywords.length === 0) {
+  if (!queryKeywords || queryKeywords.length === 0) {
     return {
       lexicalScore: 0,
       thematicBonus: 0,
@@ -75,12 +75,12 @@ export function calculateRankingFactors(params: {
     };
   }
 
-  const normalizedDocText = docText.toLowerCase();
+  const normalizedDocText = (docText || "").toLowerCase();
 
   // 1. Lexical Score (S_lex) [0.0 - 1.0]
   let matchedKeywordCount = 0;
   for (const kw of queryKeywords) {
-    if (normalizedDocText.includes(kw)) {
+    if (kw && normalizedDocText.includes(kw)) {
       matchedKeywordCount++;
     }
   }
@@ -88,9 +88,9 @@ export function calculateRankingFactors(params: {
 
   // 2. Thematic Bonus (S_thm) [0.0 - 1.0]
   let themeMatches = 0;
-  const normalizedThemes = docThemes.map((t) => t.toLowerCase());
+  const normalizedThemes = (Array.isArray(docThemes) ? docThemes : []).map((t) => (t || "").toLowerCase());
   for (const kw of queryKeywords) {
-    if (normalizedThemes.some((thm) => thm.includes(kw) || kw.includes(thm))) {
+    if (kw && normalizedThemes.some((thm) => thm && (thm.includes(kw) || kw.includes(thm)))) {
       themeMatches++;
     }
   }
@@ -98,9 +98,9 @@ export function calculateRankingFactors(params: {
 
   // 3. Tag Overlap Bonus (S_tag) [0.0 - 1.0]
   let tagMatches = 0;
-  const normalizedTags = docTags.map((t) => t.toLowerCase());
+  const normalizedTags = (Array.isArray(docTags) ? docTags : []).map((t) => (t || "").toLowerCase());
   for (const kw of queryKeywords) {
-    if (normalizedTags.some((tag) => tag.includes(kw) || kw.includes(tag))) {
+    if (kw && normalizedTags.some((tag) => tag && (tag.includes(kw) || kw.includes(tag)))) {
       tagMatches++;
     }
   }
@@ -109,10 +109,9 @@ export function calculateRankingFactors(params: {
   // 4. Recency Decay (S_rec) [0.2 - 1.0]
   let recencyWeight = 0.5;
   try {
-    const docTime = new Date(createdAt).getTime();
+    const docTime = createdAt ? new Date(createdAt).getTime() : Date.now();
     const now = Date.now();
     const ageInDays = Math.max(0, (now - docTime) / (1000 * 60 * 60 * 24));
-    // Exponential half-life decay over 60 days, floored at 0.25 to prevent older memories from vanishing
     recencyWeight = Math.max(0.25, Math.exp(-ageInDays / 60));
   } catch {
     recencyWeight = 0.5;
@@ -120,9 +119,9 @@ export function calculateRankingFactors(params: {
 
   // 5. Actionability Score (S_act) [0.0 - 1.0]
   let actionabilityWeight = 0;
-  if (actionItemTexts.length > 0) {
-    const joinedActions = actionItemTexts.join(" ").toLowerCase();
-    const actionMatches = queryKeywords.filter((kw) => joinedActions.includes(kw)).length;
+  if (Array.isArray(actionItemTexts) && actionItemTexts.length > 0) {
+    const joinedActions = actionItemTexts.filter(Boolean).join(" ").toLowerCase();
+    const actionMatches = queryKeywords.filter((kw) => kw && joinedActions.includes(kw)).length;
     actionabilityWeight = Math.min(1.0, actionMatches * 0.35 + 0.2);
   }
 

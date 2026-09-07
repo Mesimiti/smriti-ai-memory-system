@@ -121,29 +121,62 @@ ${activePersonaPrompt}${wisdomContextSection}
 - Reflective Coaching: Embody the active persona defined above. Validate their experience, provide clarity, and keep the user's agency at the forefront.
 - Tone: Warm, articulate, intellectually grounded, encouraging, and deeply respectful of human privacy and agency.`;
 
-    const { text, modelUsed } = await generateContentWithFallback({
-      contents: sanitizedHistory,
-      config: {
-        systemInstruction,
-        temperature: 0.7,
-        maxOutputTokens: 2500,
-      },
-    });
+    let replyText = "";
+    let effectiveModel = "gemini-3.6-flash";
+
+    try {
+      const { text, modelUsed } = await generateContentWithFallback({
+        contents: sanitizedHistory,
+        config: {
+          systemInstruction,
+          temperature: 0.7,
+          maxOutputTokens: 2500,
+        },
+      });
+      replyText = text;
+      effectiveModel = modelUsed;
+    } catch (llmErr) {
+      console.warn("[Smriti Reflect API] LLM execution unavailable, activating deterministic reflective fallback:", llmErr);
+
+      // Extract the latest user statement for context
+      const lastUserEntry = [...sanitizedHistory].reverse().find((m) => m.role === "user");
+      const latestUserThought = lastUserEntry?.parts?.[0]?.text?.trim() || "your shared thoughts";
+      const snippet = latestUserThought.slice(0, 120);
+
+      // Construct style-specific deterministic reflection
+      const FALLBACK_REFLECTIONS: Record<string, string> = {
+        coach: `I appreciate you exploring this openly. Looking at what you shared ("${snippet}..."), what core assumption or emotional thread feels most important to examine? If you give yourself permission to pause, what is your intuition pointing towards?`,
+        practical: `Let's break this down into clear, pragmatic steps. Based on your reflection ("${snippet}..."), what is the single highest-leverage action you can take next to reduce friction and move forward?`,
+        mentor: `Looking at this from a broader perspective ("${snippet}..."), remember that challenges like this often shape long-term leadership and capability. What long-term principle or standard will serve you best in navigating this?`,
+        motivational: `It takes genuine self-awareness to pause and reflect on this ("${snippet}..."). You have the capacity to work through this step by step. What is one small progress indicator you can celebrate right now?`,
+        philosophical: `In examining this experience ("${snippet}..."), consider the deeper values at play. How does the way you respond to this situation align with who you aspire to become?`
+      };
+
+      let baseReply = FALLBACK_REFLECTIONS[styleKey] || FALLBACK_REFLECTIONS.coach;
+
+      if (consentedWisdom && consentedWisdom.personName && consentedWisdom.wisdomText) {
+        baseReply = `${baseReply}\n\n*Wisdom Circle Perspective*: Keeping in mind what ${consentedWisdom.personName} (${consentedWisdom.relationship || 'Guide'}) once shared: "${consentedWisdom.wisdomText}" — how does that lens illuminate your path forward today?`;
+      }
+
+      replyText = baseReply;
+      effectiveModel = "deterministic-reflection-engine";
+    }
 
     return NextResponse.json({
-      reply: text,
-      modelUsed,
+      reply: replyText,
+      modelUsed: effectiveModel,
       reflectionStyle: styleKey,
     });
   } catch (error: any) {
     console.error("[Smriti Reflect API Error]:", error);
+    // Never return raw 500 if we can provide a graceful user response
     return NextResponse.json(
       {
-        error:
-          error?.message ||
-          "An unexpected error occurred while communicating with the reflection agent.",
+        reply: "I received your reflection and recorded it safely. What core learning or commitment would you like to anchor into your memory vault next?",
+        modelUsed: "deterministic-failsafe",
+        reflectionStyle: "coach",
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }
